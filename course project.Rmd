@@ -1,0 +1,161 @@
+
+---
+title: "Practical Machine Learning Project Report"
+author: "by Leykun Getaneh"
+output:
+  html_document:
+  keep_md: yes
+---
+
+## Introduction  
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.  
+
+In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they did the exercise.  
+
+## Data Preprocessing  
+```{r}
+library(knitr)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(randomForest)
+library(corrplot)
+```
+
+### Read the Data
+After downloading the data from the data source, we can read the two csv files into two data frames.  
+
+```{r, cache = T}
+training <- read.csv("./data/pml-training.csv")
+testing <- read.csv("./data/pml-testing.csv")
+dim(training)
+dim(testing)
+```
+
+The training data set contains 19622 observations and 160 variables, while the testing data set contains 20 observations and 160 variables. The "classe" variable in the training set is the outcome to predict. 
+
+### Clean the data
+In this step, we will clean the data and get rid of observations with missing values as well as some meaningless variables.
+
+First, we remove columns that contain NA missing values.
+```{r, cache = T}
+training <- training[, colSums(is.na(training)) == 0] 
+testing <- testing[, colSums(is.na(testing)) == 0] 
+dim(training)
+dim(testing)
+```  
+
+Next, we get rid of some columns that do not contribute much to the accelerometer measurements.
+
+
+```{r, cache = T}
+classe <- training$classe
+trainRemove <- grepl("^X|timestamp|window", names(training))
+training <- training[, !trainRemove]
+training <- training[, sapply(training, is.numeric)]
+training$classe <- classe
+testRemove <- grepl("^X|timestamp|window", names(testing))
+testing <- testing[, !testRemove]
+testing <- testing[, sapply(testing, is.numeric)]
+dim(training); dim(testing)
+```
+
+Now, the cleaned training data set contains 19622 observations and 53 variables, while the testing data set contains 20 observations and 53 variables. The "classe" variable is still in the cleaned training set.
+
+### Slice the data
+Then, we can split the cleaned training set into a pure training data set (70%) and a validation data set (30%). We will use the validation data set to conduct cross validation in future steps.  
+```{r, cache = T}
+set.seed(12345) # For reproducibile purpose
+inTrain <- createDataPartition(training$classe, p=0.70, list=F)
+TrainSet <- training[inTrain, ]
+TestSet <- training[-inTrain, ]
+```
+
+**Correlation Matrix Visualization  ***
+
+```{r, cache = T}
+corrPlot <- cor(TrainSet[, -length(names(TrainSet))])
+corrplot(corrPlot, method="color", type = "upper")
+```
+
+In the corrplot graph the correlated predictors (variables ) are those with a dark color intersection.
+
+## Model building
+
+For this project we will use three different algorithms, classification trees and random forests and Generalized Boosted Model to predict the outcome.
+
+1. classification trees  
+2. random forests  
+3. Generalized Boosted Model  
+
+### 1. classification trees
+
+
+We first obtail the model, and then we use the fancyRpartPlot() function to plot the classification tree as a dendogram.
+
+```{r}
+set.seed(12345)
+decisionTreeFit <- rpart(classe ~ ., data=TrainSet, method="class")
+fancyRpartPlot(decisionTreeFit)
+```
+
+We then validate the model "decisionTreeModel" on the testData to find out how well it performs by looking at the accuracy variable.
+
+```{r}
+TestSet$classe <- as.factor(TestSet$classe)
+predictTreeFit <- predict(decisionTreeFit, TestSet, type = "class")
+cmtree <- confusionMatrix(predictTreeFit, TestSet$classe)
+cmtree
+```
+
+We see that the accuracy rate of the model is low: 0.7392 and therefore the out-of-sample-error is about 0.26 which is considerable.
+
+### 2. Random Forest
+
+We first determine the model
+
+```{r}
+controlRF <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modRF1 <- train(classe ~ ., data=TrainSet, method="rf", trControl=controlRF)
+modRF1$finalModel
+```
+
+
+We then validate the model obtained model `modRF1` on the test data to find out how well it performs by looking at the Accuracy variable
+
+```{r}
+predictRF1 <- predict(modRF1, newdata=TestSet)
+cmrf <- confusionMatrix(predictRF1, TestSet$classe)
+cmrf
+```
+
+The accuracy rate using the random forest is very high: Accuracy : 0.9946 and therefore the out-of-sample-error is equal to 0.0054
+
+### 3. Generalized Boosted Regression Models
+
+```{r}
+set.seed(12345)
+controlGBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modGBM  <- train(classe ~ ., data=TrainSet, method = "gbm", trControl = controlGBM, verbose = FALSE)
+```
+
+next, we validate the GBM model
+
+```{r}
+predictGBM <- predict(modGBM, newdata=TestSet)
+cmGBM <- confusionMatrix(predictGBM, TestSet$classe)
+cmGBM
+```
+
+The accuracy rate using the random forest is very high: Accuracy : 0.9618 and therefore the out-of-sample-error is equal to 0.0382.
+
+### Model Comparison
+
+By comparing the accuracy rate values of the three models, it is clear the the 'Random Forest' model is the best model to predict outcome variable. So will use it on the validation data
+
+```{r}
+results <- predict(modRF1, newdata=testing)
+results
+```
+
